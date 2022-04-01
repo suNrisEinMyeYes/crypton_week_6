@@ -25,4 +25,8 @@ contract Token is ERC20 {
     require(msg.sender == admin, 'only admin');
     _burn(owner, amount);
   }
+
+  function getAdmin() public view returns(address){
+    return admin;
+  }
 }

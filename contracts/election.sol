@@ -3,18 +3,22 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+
 
 contract Election {
-    address public chairmen;
+    address public chairman;
     //address private _boundedTkn;
     IERC20 private _boundedTkn;
+
+    using Counters for Counters.Counter;
+    Counters.Counter private _itemsIds;
     
 
     struct overseer {
-        address voter;
         uint256 deposit;
         uint256 lockedUntil;
-      
     }
 
     struct theQuestion{
@@ -23,77 +27,111 @@ contract Election {
         uint256 positive;
         uint256 negative;
         address targetContract;
-        string name;
-        string description;
-        string funcSig;
-        
+        bytes4 funcSig;
     }
 
     event electionEnded(
-        string name,
+        uint256 indexed id,
         bool success,
         bytes data
     );
-    mapping(string => theQuestion) private nameToQuestion;
-    mapping (address => overseer) private addressToVoter;
+    mapping(uint256 => theQuestion) public nameToQuestion;
+    mapping (address => overseer) public addressToVoter;
 
     constructor(address tokens) {
-        chairmen = msg.sender;
+        chairman = msg.sender;
         _boundedTkn = IERC20(tokens);
     }
 
-    function updateChairmen(address newAdmin) external {
-        require(msg.sender == chairmen, 'only admin');
-        chairmen = newAdmin;
+    function updateChairman(address newAdmin) external {
+        require(msg.sender == chairman, 'only admin');
+        chairman = newAdmin;
     }
 
     function depositTokens(uint256 amount) public{
-      _boundedTkn.transferFrom(msg.sender, address(this), amount);
-      addressToVoter[msg.sender].deposit = addressToVoter[msg.sender].deposit == 0 ? amount : addressToVoter[msg.sender].deposit + amount;
+      //_boundedTkn.transferFrom(msg.sender, address(this), amount);
+      SafeERC20.safeTransferFrom(_boundedTkn, msg.sender, address(this), amount);
+      addressToVoter[msg.sender].deposit += amount;
     }
 
-    function initiateElection(uint256 minQ, string memory name, string calldata description, address target, string memory signature) public {
-        require(msg.sender == chairmen, "u r not a chairmen");
-        nameToQuestion[name] = theQuestion(
+    function initiateElection(uint256 minQ, address target, bytes4 signature) public {
+        require(msg.sender == chairman, "u r not a chairman");
+        _itemsIds.increment();
+        //bytes4 tmp = bytes4(keccak256(abi.encodeWithSignature(signature)));
+        nameToQuestion[_itemsIds.current()] = theQuestion(
             block.timestamp + 3 days,
             minQ,
             0,
             0,
             target,
-            name,
-            description,
-            signature
+            signature 
         );
 
     }
 
-    function vote(string memory name, bool answer) public{
+    function vote(bool answer, uint256 id) public{
         if(answer == true){
-            nameToQuestion[name].positive += addressToVoter[msg.sender].deposit;
+            nameToQuestion[id].positive += addressToVoter[msg.sender].deposit;
         }else{
-            nameToQuestion[name].negative += addressToVoter[msg.sender].deposit;
+            nameToQuestion[id].negative += addressToVoter[msg.sender].deposit;
         }
-        addressToVoter[msg.sender].lockedUntil = nameToQuestion[name].endTime > addressToVoter[msg.sender].lockedUntil ? nameToQuestion[name].endTime : addressToVoter[msg.sender].lockedUntil;
+        addressToVoter[msg.sender].lockedUntil = nameToQuestion[id].endTime > addressToVoter[msg.sender].lockedUntil ? nameToQuestion[id].endTime : addressToVoter[msg.sender].lockedUntil;
     }
 
-    function finishElection(string memory name) public{
-        require(nameToQuestion[name].endTime < block.timestamp, "Election not finished yet");
+    function finishElection(uint256 id) public returns(bytes memory) {
+        bool success;
+        bytes memory data;
+        require(nameToQuestion[id].endTime < block.timestamp, "Election not finished yet");
         //require((nameToQuestion[name].positive + nameToQuestion[name].negative) > nameToQuestion[name].minQuorum, "Not enough quorum");
-        (bool success, bytes memory data) = nameToQuestion[name].targetContract.call(abi.encodeWithSignature(nameToQuestion[name].funcSig));
-        emit electionEnded(name, success, data);
+        if(nameToQuestion[id].positive > nameToQuestion[id].negative && (nameToQuestion[id].positive + nameToQuestion[id].negative) > nameToQuestion[id].minQuorum){
+            (success, data) = nameToQuestion[id].targetContract.call(abi.encode(nameToQuestion[id].funcSig));
+            //require(success == true, "not true");
+            
+        } else {
+            success = false;
+            data = "";
+        }
+        emit electionEnded(id, success, data);
+        return data;
     }
 
     function withdraw(uint256 amount) public{
         require(amount < addressToVoter[msg.sender].deposit, "Not enough tkns to wd");
-        _boundedTkn.transferFrom(address(this), msg.sender, amount);
+        require(addressToVoter[msg.sender].lockedUntil < block.timestamp, "locked period is not finished yet");
+        //_boundedTkn.approve(spender, amount);
+        //_boundedTkn.transferFrom(address(this), msg.sender, amount);
+        SafeERC20.safeTransferFrom(_boundedTkn, address(this), msg.sender, amount);
+
         addressToVoter[msg.sender].deposit -= amount;
 
+    } 
+    //there are some problems problems with test, so i need geters 
+
+    function getDeposit() public view returns(uint256) {
+        return addressToVoter[msg.sender].deposit;
     }
 
+    function getQuorum(uint256 id) public view returns(uint256){
+        return nameToQuestion[id].minQuorum;
+    }
 
-    
+    function getFor(uint256 id) public view returns(uint256) {
+        return nameToQuestion[id].positive;
+    }
 
-  
+    function getAgainst(uint256 id) public view returns(uint256) {
+        return nameToQuestion[id].negative;
+    }
 
-  
+    function getEndTime(uint256 id) public view returns(uint256){
+        return nameToQuestion[id].endTime;
+    }
+
+    function getLockPeriod(address addr) public view returns(uint256){
+        return addressToVoter[addr].lockedUntil;
+    }
+
+    function getChairman() public view returns(address){
+        return chairman;
+    }
 }
