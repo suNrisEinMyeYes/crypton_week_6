@@ -50,7 +50,7 @@ contract Election {
 
     function depositTokens(uint256 amount) public{
       //_boundedTkn.transferFrom(msg.sender, address(this), amount);
-      SafeERC20.safeTransferFrom(_boundedTkn, msg.sender, address(this), amount);
+      SafeERC20.safeTransfer(_boundedTkn, address(this), amount);
       addressToVoter[msg.sender].deposit += amount;
     }
 

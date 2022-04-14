@@ -53,7 +53,7 @@ describe("Token contract", function () {
 
     it("upload some tokens", async function () {
       await erc20Contract.connect(ERC20owner).mint(await DaoUser.getAddress(), parseEther("50"))
-      await erc20Contract.connect(DaoUser).approve(electionContract.address, parseEther("50"))
+      //await erc20Contract.connect(DaoUser).approve(electionContract.address, parseEther("50"))
       await electionContract.connect(DaoUser).depositTokens(parseEther("50"))
       expect(await electionContract.connect(DaoUser).getDeposit()).to.equal(parseEther("50"))
       
